@@ -620,8 +620,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def _page_for_path(path: str) -> str | None:
       if path in {"/chat", "/chat/"}:
         return "chat"
-      if path in {"/runs", "/runs/"}:
-        return "runs"
+      if path in {"/history", "/history/"}:
+        return "history"
       if path in {"/providers", "/providers/"}:
         return "providers"
       return None
@@ -670,8 +670,8 @@ def run_dashboard(
 
 def build_dashboard_html(state: dict[str, Any]) -> str:
   page = str(state.get("page") or "chat")
-  if page == "runs":
-    return _render_runs_page(state)
+  if page == "history":
+    return _render_history_page(state)
   if page == "providers":
     return _render_providers_page(state)
   return _render_chat_page(state)
@@ -689,9 +689,9 @@ def _render_sidebar(
   state_path = html.escape(str(workspace.get("state_path") or ""))
 
   page_links = [
-    ("chat", "Chat", _build_link("/chat", q=query, run_id=run_id)),
-    ("runs", "Runs", _build_link("/runs", q=query)),
-    ("providers", "Providers", "/providers"),
+    ("chat", "Conversation", _build_link("/chat", q=query, run_id=run_id)),
+    ("history", "History", _build_link("/history", q=query)),
+    ("providers", "Provider Status", "/providers"),
   ]
 
   return "".join(
@@ -705,12 +705,12 @@ def _render_sidebar(
       '</div>',
       '</div>',
       '<nav class="nav-group">',
-      '<div class="nav-title">Navigation</div>',
+      '<div class="nav-title">Pages</div>',
       *[_nav_item(label, href, active=page == active_page) for page, label, href in page_links],
-      _nav_item("State", "/api/state"),
+      _nav_item("Runtime State", "/api/state"),
       '</nav>',
       '<nav class="nav-group">',
-      '<div class="nav-title">Workspace</div>',
+      '<div class="nav-title">Shortcuts</div>',
       _nav_item("Composer", "#composer"),
       _nav_item("Recent runs", "#recent-runs"),
       _nav_item("Overview", "#summary"),
@@ -830,7 +830,7 @@ def _render_feed(selected_run: dict[str, Any] | None, query: str, recent_runs: l
     cards.append('<section class="feed" id="runs">')
     cards.append('<div class="section-head">')
     cards.append('<div>')
-    cards.append('<div class="section-kicker">Chat</div>')
+    cards.append('<div class="section-kicker">Conversation</div>')
     cards.append('<h2>Run canvas</h2>')
     cards.append('</div>')
     cards.append(f'<div class="section-meta">{html.escape("No runs yet" if not selected_run else _render_state_chip(selected_run))}</div>')
@@ -2779,7 +2779,7 @@ def _render_chat_page(state: dict[str, Any]) -> str:
   subtitle = (
     f'Showing runs matching "{html.escape(query)}".'
     if query.strip()
-    else "A clean chat surface for the latest run in the current workspace."
+    else "A clean conversation surface for the latest run in the current workspace."
   )
 
   header = "".join(
@@ -2817,7 +2817,7 @@ def _render_chat_page(state: dict[str, Any]) -> str:
     ]
   )
   return _render_page(
-    title="Nexus AGI - Chat",
+    title="Nexus AGI - Conversation",
     page="chat",
     sidebar_html=_render_sidebar(workspace, active_page="chat", query=query, run_id=run_id),
     body_html=body,
@@ -2922,20 +2922,20 @@ def _render_run_controls(selected_run: dict[str, Any] | None) -> str:
     )
 
 
-def _render_runs_page(state: dict[str, Any]) -> str:
+def _render_history_page(state: dict[str, Any]) -> str:
   workspace = dict(state.get("workspace") or {})
   runs = list(state.get("runs") or [])
   query = str(state.get("query") or "")
   subtitle = (
-    f'Showing runs matching "{html.escape(query)}".'
+    f'Showing history matching "{html.escape(query)}".'
     if query.strip()
-    else "Open any run in a separate chat window."
+    else "Open any entry in a separate conversation window."
   )
   header = "".join(
     [
       '<header class="page-header">',
       '<div>',
-      '<h1 class="page-title">Runs</h1>',
+      '<h1 class="page-title">History</h1>',
       f'<div class="page-subtitle">{subtitle}</div>',
       '</div>',
       '</header>',
@@ -2944,16 +2944,16 @@ def _render_runs_page(state: dict[str, Any]) -> str:
 
   if not runs:
     if query.strip():
-      body = f'<div class="empty-state">No runs matched "{html.escape(query)}". Try a broader search or clear the filter.</div>'
+      body = f'<div class="empty-state">No history matched "{html.escape(query)}". Try a broader search or clear the filter.</div>'
     else:
-      body = '<div class="empty-state">No runs yet. Create one from the chat tab.</div>'
+      body = '<div class="empty-state">No history yet. Create one from the conversation tab.</div>'
   else:
     body = ''.join(_render_run_card(run) for run in runs)
 
   return _render_page(
-    title="Nexus AGI - Runs",
-    page="runs",
-    sidebar_html=_render_sidebar(workspace, active_page="runs", query=query),
+    title="Nexus AGI - History",
+    page="history",
+    sidebar_html=_render_sidebar(workspace, active_page="history", query=query),
     body_html=header + f'<main class="page-list"><div class="page-list-inner">{body}</div></main>',
   )
 
