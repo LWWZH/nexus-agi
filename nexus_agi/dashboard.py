@@ -620,8 +620,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def _page_for_path(path: str) -> str | None:
       if path in {"/chat", "/chat/"}:
         return "chat"
-      if path in {"/runs", "/runs/"}:
-        return "runs"
+      if path in {"/history", "/history/"}:
+        return "history"
       if path in {"/providers", "/providers/"}:
         return "providers"
       return None
@@ -670,57 +670,59 @@ def run_dashboard(
 
 def build_dashboard_html(state: dict[str, Any]) -> str:
   page = str(state.get("page") or "chat")
-  if page == "runs":
-    return _render_runs_page(state)
+  if page == "history":
+    return _render_history_page(state)
   if page == "providers":
     return _render_providers_page(state)
   return _render_chat_page(state)
 
 
-def _render_sidebar(workspace: dict[str, Any]) -> str:
-    workspace_name = html.escape(str(workspace.get("name") or "Workspace"))
-    workspace_root = html.escape(str(workspace.get("root") or ""))
-    state_path = html.escape(str(workspace.get("state_path") or ""))
+def _render_sidebar(
+  workspace: dict[str, Any],
+  *,
+  active_page: str,
+  query: str = "",
+  run_id: str = "",
+) -> str:
+  workspace_name = html.escape(str(workspace.get("name") or "Workspace"))
+  workspace_root = html.escape(str(workspace.get("root") or ""))
+  state_path = html.escape(str(workspace.get("state_path") or ""))
 
-    return "".join(
-        [
-            '<aside class="sidebar">',
-            '<div class="brand">',
-            '<div class="brand-mark">NA</div>',
-            '<div>',
-            '<div class="brand-kicker">Control</div>',
-            '<div class="brand-name">Nexus AGI</div>',
-            '</div>',
-            '</div>',
-            '<nav class="nav-group">',
-            '<div class="nav-title">Chat</div>',
-            _nav_item("Chat", "/", active=True),
-            _nav_item("Overview", "#summary"),
-            '</nav>',
-            '<nav class="nav-group">',
-            '<div class="nav-title">Control</div>',
-            _nav_item("Runs", "#runs"),
-            _nav_item("Providers", "#providers"),
-            _nav_item("Sessions", "#recent-runs"),
-            '</nav>',
-            '<nav class="nav-group">',
-            '<div class="nav-title">Agent</div>',
-            _nav_item("Composer", "#composer"),
-            _nav_item("State", "/api/state"),
-            '</nav>',
-            '<nav class="nav-group">',
-            '<div class="nav-title">Settings</div>',
-            _nav_item("Workspace", "#summary"),
-            _nav_item("Docs", "/api/state"),
-            '</nav>',
-            '<div class="sidebar-footer">',
-            f'<div class="sidebar-label">{workspace_name}</div>',
-            f'<div class="sidebar-meta">{workspace_root}</div>',
-            f'<div class="sidebar-meta">{state_path}</div>',
-            '</div>',
-            '</aside>',
-        ]
-    )
+  page_links = [
+    ("chat", "Conversation", _build_link("/chat", q=query, run_id=run_id)),
+    ("history", "History", _build_link("/history", q=query)),
+    ("providers", "Provider Status", "/providers"),
+  ]
+
+  return "".join(
+    [
+      '<aside class="sidebar">',
+      '<div class="brand">',
+      '<div class="brand-mark">NA</div>',
+      '<div>',
+      '<div class="brand-kicker">Control</div>',
+      '<div class="brand-name">Nexus AGI</div>',
+      '</div>',
+      '</div>',
+      '<nav class="nav-group">',
+      '<div class="nav-title">Pages</div>',
+      *[_nav_item(label, href, active=page == active_page) for page, label, href in page_links],
+      _nav_item("Runtime State", "/api/state"),
+      '</nav>',
+      '<nav class="nav-group">',
+      '<div class="nav-title">Shortcuts</div>',
+      _nav_item("Composer", "#composer"),
+      _nav_item("Recent runs", "#recent-runs"),
+      _nav_item("Overview", "#summary"),
+      '</nav>',
+      '<div class="sidebar-footer">',
+      f'<div class="sidebar-label">{workspace_name}</div>',
+      f'<div class="sidebar-meta">{workspace_root}</div>',
+      f'<div class="sidebar-meta">{state_path}</div>',
+      '</div>',
+      '</aside>',
+    ]
+  )
 
 
 def _render_topbar(workspace: dict[str, Any], query: str, selected_run: dict[str, Any] | None) -> str:
@@ -828,7 +830,7 @@ def _render_feed(selected_run: dict[str, Any] | None, query: str, recent_runs: l
     cards.append('<section class="feed" id="runs">')
     cards.append('<div class="section-head">')
     cards.append('<div>')
-    cards.append('<div class="section-kicker">Chat</div>')
+    cards.append('<div class="section-kicker">Conversation</div>')
     cards.append('<h2>Run canvas</h2>')
     cards.append('</div>')
     cards.append(f'<div class="section-meta">{html.escape("No runs yet" if not selected_run else _render_state_chip(selected_run))}</div>')
@@ -2322,14 +2324,149 @@ a {
 
 .app {
   position: relative;
-  height: 100dvh;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 100dvh;
+  display: block;
   overflow: hidden;
 }
 
-.app.chat-page {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+.shell {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  gap: 18px;
+  padding: 18px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: calc(100dvh - 36px);
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(13, 16, 23, 0.94), rgba(10, 12, 17, 0.96));
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(239, 108, 114, 0.92), rgba(255, 135, 110, 0.68));
+  box-shadow: 0 10px 24px rgba(239, 108, 114, 0.24);
+  color: #120e12;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+}
+
+.brand-kicker,
+.section-kicker,
+.nav-title,
+.rail-label,
+.sidebar-label {
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.68rem;
+}
+
+.brand-kicker,
+.section-kicker,
+.nav-title,
+.rail-label {
+  color: var(--muted);
+}
+
+.brand-name {
+  margin-top: 3px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 0 14px 0 36px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  color: var(--muted);
+  background: transparent;
+  transition: border-color 160ms ease, background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.nav-item::before {
+  content: "";
+  position: absolute;
+  left: 14px;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.nav-item:hover {
+  color: var(--text);
+  border-color: var(--border);
+  background: rgba(255, 255, 255, 0.03);
+  transform: translateX(2px);
+}
+
+.nav-item-active {
+  color: var(--text);
+  border-color: rgba(239, 108, 114, 0.28);
+  background: linear-gradient(90deg, rgba(239, 108, 114, 0.16), rgba(239, 108, 114, 0.05));
+}
+
+.nav-item-active::before {
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(239, 108, 114, 0.12);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sidebar-label {
+  color: var(--text);
+}
+
+.sidebar-meta {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  word-break: break-word;
+}
+
+.workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: calc(100dvh - 36px);
 }
 
 .page-header {
@@ -2352,51 +2489,6 @@ a {
   font-size: 0.88rem;
 }
 
-.tab-strip {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 5px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.03);
-  box-shadow: var(--shadow);
-}
-
-.tab,
-.tab-active {
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  font-weight: 600;
-}
-
-.tab {
-  border-color: transparent;
-  color: var(--muted);
-  background: transparent;
-  cursor: pointer;
-}
-
-.tab:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.tab-active {
-  border-color: rgba(240, 111, 114, 0.28);
-  background: rgba(240, 111, 114, 0.14);
-  color: var(--text);
-}
-
-.tab[disabled] {
-  opacity: 0.75;
-  cursor: default;
-}
-
 .chat-stage,
 .list-stage {
   min-height: 0;
@@ -2404,6 +2496,7 @@ a {
 }
 
 .chat-stage {
+  flex: 1;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
 }
@@ -2622,14 +2715,19 @@ a {
 }
 
 @media (max-width: 860px) {
-  .page-header {
-    flex-direction: column;
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 14px;
   }
 
-  .tab-strip {
-    width: 100%;
-    justify-content: space-between;
-    overflow-x: auto;
+  .sidebar {
+    position: relative;
+    top: 0;
+    height: auto;
+  }
+
+  .page-header {
+    flex-direction: column;
   }
 
   .bubble {
@@ -2647,7 +2745,7 @@ a {
 """
 
 
-def _render_page(*, title: str, page: str, body_html: str) -> str:
+def _render_page(*, title: str, page: str, sidebar_html: str, body_html: str) -> str:
     return (
         "<!doctype html>"
         "<html lang='en'>"
@@ -2659,79 +2757,71 @@ def _render_page(*, title: str, page: str, body_html: str) -> str:
         f"<style>{MODERN_DASHBOARD_CSS}</style>"
         "</head>"
         f"<body class='app {html.escape(page)}-page' data-page='{html.escape(page)}'>"
+        '<div class="shell">'
+        f"{sidebar_html}"
+        '<div class="workspace">'
         f"{body_html}"
+        '</div>'
+        '</div>'
         "</body>"
         "</html>"
     )
 
 
-def _render_tabs(active_page: str) -> str:
-    tabs = [
-        ("chat", "Chat", "/chat"),
-        ("runs", "Runs", "/runs"),
-        ("providers", "Providers", "/providers"),
-    ]
-    parts = ['<form class="tab-strip" method="get" autocomplete="off">']
-    for page, label, path in tabs:
-        if page == active_page:
-            parts.append(f'<span class="tab-active" aria-current="page">{html.escape(label)}</span>')
-        else:
-            parts.append(
-                f'<button class="tab" type="submit" formaction="{html.escape(path)}" formtarget="_blank">{html.escape(label)}</button>'
-            )
-    parts.append("</form>")
-    return "".join(parts)
-
-
 def _render_chat_page(state: dict[str, Any]) -> str:
-    workspace = dict(state.get("workspace") or {})
-    selected_run = dict(state.get("selected_run") or {}) if state.get("selected_run") else None
-    selected_provider_id = str(state.get("selected_provider_id") or LOCAL_PROVIDER_ID)
-    conversation = list(state.get("conversation") or [])
-    query = str(state.get("query") or "")
+  workspace = dict(state.get("workspace") or {})
+  selected_run = dict(state.get("selected_run") or {}) if state.get("selected_run") else None
+  selected_provider_id = str(state.get("selected_provider_id") or LOCAL_PROVIDER_ID)
+  conversation = list(state.get("conversation") or [])
+  query = str(state.get("query") or "")
+  run_id = str(state.get("selected_run_id") or "")
 
-    subtitle = (
-        f'Showing runs matching "{html.escape(query)}".'
-        if query.strip()
-        else "A clean chat surface for the latest run in the current workspace."
-    )
+  subtitle = (
+    f'Showing runs matching "{html.escape(query)}".'
+    if query.strip()
+    else "A clean conversation surface for the latest run in the current workspace."
+  )
 
-    header = "".join(
-        [
-            '<header class="page-header">',
-            '<div>',
-            '<h1 class="page-title">Conversation</h1>',
-            f'<div class="page-subtitle">{subtitle}</div>',
-            '</div>',
-            _render_tabs("chat"),
-            '</header>',
-        ]
-    )
+  header = "".join(
+    [
+      '<header class="page-header">',
+      '<div>',
+      '<h1 class="page-title">Conversation</h1>',
+      f'<div class="page-subtitle">{subtitle}</div>',
+      '</div>',
+      '</header>',
+    ]
+  )
 
-    run_controls = _render_run_controls(selected_run)
-    if selected_run is None or not conversation:
-        if query.strip():
-            conversation_html = f'<div class="bubble bubble-empty">No runs matched "{html.escape(query)}". Try a broader search or open a different run.</div>'
-        else:
-            conversation_html = '<div class="bubble bubble-empty">Start a conversation to see the exchange here.</div>'
+  run_controls = _render_run_controls(selected_run)
+  if selected_run is None or not conversation:
+    if query.strip():
+      conversation_html = f'<div class="bubble bubble-empty">No runs matched "{html.escape(query)}". Try a broader search or open a different run.</div>'
     else:
-        conversation_html = _render_chat_bubbles(conversation)
+      conversation_html = '<div class="bubble bubble-empty">Start a conversation to see the exchange here.</div>'
+  else:
+    conversation_html = _render_chat_bubbles(conversation)
 
-    body = "".join(
-        [
-            header,
-            run_controls,
-            '<main class="chat-stage">',
-            '<section class="conversation-panel">',
-            f'<div class="conversation-list" data-workspace="{html.escape(str(workspace.get("name") or "Workspace"))}">',
-            conversation_html,
-            '</div>',
-            '</section>',
-            '</main>',
-            _render_chat_composer(selected_provider_id),
-        ]
-    )
-    return _render_page(title="Nexus AGI - Chat", page="chat", body_html=body)
+  body = "".join(
+    [
+      header,
+      run_controls,
+      '<main class="chat-stage">',
+      '<section class="conversation-panel">',
+      f'<div class="conversation-list" data-workspace="{html.escape(str(workspace.get("name") or "Workspace"))}">',
+      conversation_html,
+      '</div>',
+      '</section>',
+      '</main>',
+      _render_chat_composer(selected_provider_id),
+    ]
+  )
+  return _render_page(
+    title="Nexus AGI - Conversation",
+    page="chat",
+    sidebar_html=_render_sidebar(workspace, active_page="chat", query=query, run_id=run_id),
+    body_html=body,
+  )
 
 
 def _render_chat_bubbles(conversation: list[dict[str, str]]) -> str:
@@ -2832,39 +2922,40 @@ def _render_run_controls(selected_run: dict[str, Any] | None) -> str:
     )
 
 
-def _render_runs_page(state: dict[str, Any]) -> str:
-    runs = list(state.get("runs") or [])
-    query = str(state.get("query") or "")
-    subtitle = (
-        f'Showing runs matching "{html.escape(query)}".'
-        if query.strip()
-        else "Open any run in a separate chat window."
-    )
-    header = "".join(
-        [
-            '<header class="page-header">',
-            '<div>',
-            '<h1 class="page-title">Runs</h1>',
-            f'<div class="page-subtitle">{subtitle}</div>',
-            '</div>',
-            _render_tabs("runs"),
-            '</header>',
-        ]
-    )
+def _render_history_page(state: dict[str, Any]) -> str:
+  workspace = dict(state.get("workspace") or {})
+  runs = list(state.get("runs") or [])
+  query = str(state.get("query") or "")
+  subtitle = (
+    f'Showing history matching "{html.escape(query)}".'
+    if query.strip()
+    else "Open any entry in a separate conversation window."
+  )
+  header = "".join(
+    [
+      '<header class="page-header">',
+      '<div>',
+      '<h1 class="page-title">History</h1>',
+      f'<div class="page-subtitle">{subtitle}</div>',
+      '</div>',
+      '</header>',
+    ]
+  )
 
-    if not runs:
-        if query.strip():
-            body = f'<div class="empty-state">No runs matched "{html.escape(query)}". Try a broader search or clear the filter.</div>'
-        else:
-            body = '<div class="empty-state">No runs yet. Create one from the chat tab.</div>'
+  if not runs:
+    if query.strip():
+      body = f'<div class="empty-state">No history matched "{html.escape(query)}". Try a broader search or clear the filter.</div>'
     else:
-        body = ''.join(_render_run_card(run) for run in runs)
+      body = '<div class="empty-state">No history yet. Create one from the conversation tab.</div>'
+  else:
+    body = ''.join(_render_run_card(run) for run in runs)
 
-    return _render_page(
-        title="Nexus AGI - Runs",
-        page="runs",
-        body_html=header + f'<main class="page-list"><div class="page-list-inner">{body}</div></main>',
-    )
+  return _render_page(
+    title="Nexus AGI - History",
+    page="history",
+    sidebar_html=_render_sidebar(workspace, active_page="history", query=query),
+    body_html=header + f'<main class="page-list"><div class="page-list-inner">{body}</div></main>',
+  )
 
 
 def _render_run_card(run: dict[str, Any]) -> str:
@@ -2890,29 +2981,30 @@ def _render_run_card(run: dict[str, Any]) -> str:
 
 
 def _render_providers_page(state: dict[str, Any]) -> str:
-    provider_statuses = list(state.get("provider_statuses") or [])
-    header = "".join(
-        [
-            '<header class="page-header">',
-            '<div>',
-            '<h1 class="page-title">Providers</h1>',
-            '<div class="page-subtitle">Only the provider readiness summary is shown here.</div>',
-            '</div>',
-            _render_tabs("providers"),
-            '</header>',
-        ]
-    )
+  workspace = dict(state.get("workspace") or {})
+  provider_statuses = list(state.get("provider_statuses") or [])
+  header = "".join(
+    [
+      '<header class="page-header">',
+      '<div>',
+      '<h1 class="page-title">Providers</h1>',
+      '<div class="page-subtitle">Only the provider readiness summary is shown here.</div>',
+      '</div>',
+      '</header>',
+    ]
+  )
 
-    if not provider_statuses:
-        body = '<div class="empty-state">No provider information available.</div>'
-    else:
-        body = ''.join(_render_provider_card(status) for status in provider_statuses)
+  if not provider_statuses:
+    body = '<div class="empty-state">No provider information available.</div>'
+  else:
+    body = ''.join(_render_provider_card(status) for status in provider_statuses)
 
-    return _render_page(
-        title="Nexus AGI - Providers",
-        page="providers",
-        body_html=header + f'<main class="page-list"><div class="provider-grid">{body}</div></main>',
-    )
+  return _render_page(
+    title="Nexus AGI - Providers",
+    page="providers",
+    sidebar_html=_render_sidebar(workspace, active_page="providers"),
+    body_html=header + f'<main class="page-list"><div class="provider-grid">{body}</div></main>',
+  )
 
 
 def _render_provider_card(status: dict[str, Any]) -> str:
