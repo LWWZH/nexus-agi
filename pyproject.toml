@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nexus-agi"
+version = "0.1.0"
+description = "Local-first personal AGI assistant"
+requires-python = ">=3.11"
+
+[project.scripts]
+nexus-agi = "nexus_agi.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["nexus_agi*"]
