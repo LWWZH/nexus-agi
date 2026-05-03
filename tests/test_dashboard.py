@@ -36,7 +36,7 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("composer-bar", html)
             self.assertIn("/api/submit", html)
             self.assertIn("/history", html)
-            self.assertIn("/providers", html)
+            self.assertIn("/config", html)
 
     def test_query_filters_to_matching_run(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -71,19 +71,22 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("Open conversation", html)
             self.assertIn('formtarget="_blank"', html)
 
-    def test_providers_page_is_compact(self) -> None:
+    def test_config_page_is_compact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
             store = JsonStateStore(workspace)
             runtime = AgentRuntime(store)
             app = DashboardApp(workspace, store=store, runtime=runtime)
 
-            state = app.build_state(page="providers")
+            state = app.build_state(page="config")
             html = build_dashboard_html(state)
 
-            self.assertIn("Providers", html)
+            self.assertIn("Config", html)
             self.assertIn("provider-card", html)
             self.assertNotIn('<form class="composer-bar"', html)
+
+            legacy_html = build_dashboard_html(app.build_state(page="providers"))
+            self.assertIn("Config", legacy_html)
 
     def test_blocked_run_exposes_approval_controls(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

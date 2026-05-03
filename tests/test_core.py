@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -199,13 +201,13 @@ class CliTests(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertTrue((workspace / ".nexus-agi" / "state.json").exists())
 
-    def test_configure_updates_state_and_config_file(self) -> None:
+    def test_config_updates_state_and_config_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
             exit_code = main([
                 "--workspace",
                 str(workspace),
-                "configure",
+                "config",
                 "--default-provider",
                 "custom",
                 "--provider-setting",
@@ -223,6 +225,34 @@ class CliTests(unittest.TestCase):
                 },
             )
             self.assertTrue((workspace / ".nexus-agi" / "config.json").exists())
+
+    def test_configure_alias_still_updates_state_and_config_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            exit_code = main([
+                "--workspace",
+                str(workspace),
+                "configure",
+                "--default-provider",
+                "custom",
+            ])
+            self.assertEqual(exit_code, 0)
+
+            store = JsonStateStore(workspace)
+            config = store.get_config()
+            self.assertEqual(config.default_provider, "custom")
+
+    def test_config_providers_lists_statuses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = main(["--workspace", str(workspace), "config", "providers", "--json"])
+            self.assertEqual(exit_code, 0)
+            statuses = json.loads(output.getvalue())
+            provider_ids = {status["provider_id"] for status in statuses}
+            self.assertIn(LOCAL_PROVIDER_ID, provider_ids)
+            self.assertIn(CUSTOM_PROVIDER_ID, provider_ids)
 
 
 if __name__ == "__main__":
