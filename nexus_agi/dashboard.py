@@ -60,6 +60,7 @@ class DashboardApp:
         "runs": recent_runs,
         "conversation": self._conversation_messages(selected_run),
         "summary": summary,
+        "updated_at": self._state_updated_at(state, summary),
         "config": self._config_to_dict(state),
         "provider_statuses": provider_statuses,
         "selected_provider_id": self._selected_provider_id(state),
@@ -197,6 +198,21 @@ class DashboardApp:
         if callable(to_dict):
             return dict(to_dict())
         return {}
+
+    def _state_updated_at(self, state: Any, summary: dict[str, Any] | Any) -> str:
+      summary_updated_at = str(summary.get("updated_at") or "") if isinstance(summary, dict) else ""
+      if summary_updated_at:
+        return summary_updated_at
+
+      state_updated_at = str(getattr(state, "updated_at", ""))
+      if state_updated_at:
+        return state_updated_at
+
+      state_path = self._state_path()
+      if state_path.exists():
+        return str(int(state_path.stat().st_mtime_ns))
+
+      return ""
 
     def _select_run(self, runs: list[Any], run_id: str) -> Any:
         normalized_run_id = run_id.strip()
@@ -2752,7 +2768,7 @@ a {
 """
 
 
-def _render_page(*, title: str, page: str, sidebar_html: str, body_html: str) -> str:
+def _render_page(*, title: str, page: str, sidebar_html: str, body_html: str, state_updated_at: str = "") -> str:
     return (
         "<!doctype html>"
         "<html lang='en'>"
@@ -2763,20 +2779,80 @@ def _render_page(*, title: str, page: str, sidebar_html: str, body_html: str) ->
         f"<title>{html.escape(title)}</title>"
         f"<style>{MODERN_DASHBOARD_CSS}</style>"
         "</head>"
-        f"<body class='app {html.escape(page)}-page' data-page='{html.escape(page)}'>"
+        f"<body class='app {html.escape(page)}-page' data-page='{html.escape(page)}' data-state-updated-at='{html.escape(state_updated_at)}'>"
         '<div class="shell">'
         f"{sidebar_html}"
         '<div class="workspace">'
         f"{body_html}"
         '</div>'
         '</div>'
+        f"{_render_auto_refresh_script(page)}"
         "</body>"
         "</html>"
     )
 
 
+def _render_auto_refresh_script(page: str) -> str:
+  if page not in {"chat", "history"}:
+    return ""
+
+  return "".join(
+    [
+      "<script>",
+      "(() => {",
+      "  const refreshablePages = new Set(['chat', 'history']);",
+      "  const page = document.body?.dataset?.page || '';",
+      "  if (!refreshablePages.has(page)) { return; }",
+      "  const refreshIntervalMs = 5000;",
+      "  let lastUpdatedAt = document.body?.dataset?.stateUpdatedAt || '';",
+      "  let refreshInFlight = false;",
+      "  const isEditing = () => {",
+      "    const activeElement = document.activeElement;",
+      "    if (!activeElement) { return false; }",
+      "    return activeElement.matches('input, textarea, select, button, [contenteditable=\"true\"]') || Boolean(activeElement.closest('.composer-bar'));",
+      "  };",
+      "  const refreshShell = async () => {",
+      "    if (refreshInFlight || isEditing()) { return; }",
+      "    try {",
+      "      const stateUrl = new URL('/api/state', window.location.origin);",
+      "      stateUrl.search = window.location.search;",
+      "      stateUrl.searchParams.set('_', String(Date.now()));",
+      "      const stateResponse = await fetch(stateUrl.toString(), { cache: 'no-store', headers: { Accept: 'application/json' } });",
+      "      if (!stateResponse.ok) { return; }",
+      "      const state = await stateResponse.json();",
+      "      const nextUpdatedAt = String((state.summary && state.summary.updated_at) || state.updated_at || '');",
+      "      if (!nextUpdatedAt || nextUpdatedAt === lastUpdatedAt) { return; }",
+      "      refreshInFlight = true;",
+      "      const scrollX = window.scrollX;",
+      "      const scrollY = window.scrollY;",
+      "      const pageResponse = await fetch(window.location.pathname + window.location.search, { cache: 'no-store', headers: { Accept: 'text/html' } });",
+      "      if (!pageResponse.ok) { return; }",
+      "      const pageHtml = await pageResponse.text();",
+      "      const nextDocument = new DOMParser().parseFromString(pageHtml, 'text/html');",
+      "      const nextShell = nextDocument.querySelector('.shell');",
+      "      const currentShell = document.querySelector('.shell');",
+      "      if (nextShell && currentShell) {",
+      "        currentShell.replaceWith(nextShell);",
+      "        window.scrollTo(scrollX, scrollY);",
+      "        document.body.dataset.stateUpdatedAt = nextUpdatedAt;",
+      "        lastUpdatedAt = nextUpdatedAt;",
+      "      }",
+      "    } catch (_error) {",
+      "      return;",
+      "    } finally {",
+      "      refreshInFlight = false;",
+      "    }",
+      "  };",
+      "  window.setInterval(refreshShell, refreshIntervalMs);",
+      "})();",
+      "</script>",
+    ]
+  )
+
+
 def _render_chat_page(state: dict[str, Any]) -> str:
   workspace = dict(state.get("workspace") or {})
+  state_updated_at = str(state.get("updated_at") or "")
   selected_run = dict(state.get("selected_run") or {}) if state.get("selected_run") else None
   selected_provider_id = str(state.get("selected_provider_id") or LOCAL_PROVIDER_ID)
   conversation = list(state.get("conversation") or [])
@@ -2828,6 +2904,7 @@ def _render_chat_page(state: dict[str, Any]) -> str:
     page="chat",
     sidebar_html=_render_sidebar(workspace, active_page="chat", query=query, run_id=run_id),
     body_html=body,
+    state_updated_at=state_updated_at,
   )
 
 
@@ -2931,6 +3008,7 @@ def _render_run_controls(selected_run: dict[str, Any] | None) -> str:
 
 def _render_history_page(state: dict[str, Any]) -> str:
   workspace = dict(state.get("workspace") or {})
+  state_updated_at = str(state.get("updated_at") or "")
   runs = list(state.get("runs") or [])
   query = str(state.get("query") or "")
   subtitle = (
@@ -2962,6 +3040,7 @@ def _render_history_page(state: dict[str, Any]) -> str:
     page="history",
     sidebar_html=_render_sidebar(workspace, active_page="history", query=query),
     body_html=header + f'<main class="page-list"><div class="page-list-inner">{body}</div></main>',
+    state_updated_at=state_updated_at,
   )
 
 
@@ -2989,6 +3068,7 @@ def _render_run_card(run: dict[str, Any]) -> str:
 
 def _render_config_page(state: dict[str, Any]) -> str:
   workspace = dict(state.get("workspace") or {})
+  state_updated_at = str(state.get("updated_at") or "")
   config = dict(state.get("config") or {})
   provider_statuses = list(state.get("provider_statuses") or [])
   provider_settings = dict(config.get("provider_settings") or {})
@@ -3029,6 +3109,7 @@ def _render_config_page(state: dict[str, Any]) -> str:
     page="config",
     sidebar_html=_render_sidebar(workspace, active_page="config"),
     body_html=header + f'<main class="page-list">{settings_panel}{_render_provider_panel(provider_statuses)}</main>',
+    state_updated_at=state_updated_at,
   )
 
 
