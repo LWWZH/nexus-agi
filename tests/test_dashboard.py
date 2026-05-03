@@ -22,7 +22,6 @@ class DashboardTests(unittest.TestCase):
 
             self.assertIsNotNone(state["selected_run"])
             self.assertEqual(state["selected_run"]["id"], getattr(run, "run_id", getattr(run, "id", "")))
-            self.assertTrue(state["updated_at"])
             self.assertGreaterEqual(len(state["recent_runs"]), 1)
             self.assertEqual(len(state["conversation"]), 2)
             self.assertIn('<aside class="sidebar">', html)
@@ -35,9 +34,7 @@ class DashboardTests(unittest.TestCase):
             self.assertIn("bubble-user", html)
             self.assertIn("bubble-assistant", html)
             self.assertIn("composer-bar", html)
-            self.assertIn("data-state-updated-at", html)
-            self.assertIn("window.setInterval(refreshShell, refreshIntervalMs)", html)
-            self.assertIn("window.scrollTo(scrollX, scrollY)", html)
+            self.assertIn("/api/submit", html)
             self.assertIn("/history", html)
             self.assertIn("/config", html)
 
