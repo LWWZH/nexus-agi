@@ -28,7 +28,7 @@ Planned commands:
 - `nexus-agi status` - inspect current and past runs.
 - `nexus-agi resume` - continue an interrupted run.
 - `nexus-agi approve` - approve blocked actions.
-- `nexus-agi providers` - list and test configured providers.
+- `nexus-agi config providers` - list and test configured providers.
 - `nexus-agi config` - manage models, tools, and runtime settings.
 
 Terminal output should be concise and operational: current step, tool calls, model used, blocking conditions, artifacts produced, and next action.

@@ -622,8 +622,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         return "chat"
       if path in {"/history", "/history/"}:
         return "history"
-      if path in {"/providers", "/providers/"}:
-        return "providers"
+      if path in {"/config", "/config/", "/providers", "/providers/"}:
+        return "config"
       return None
 
     @staticmethod
@@ -672,8 +672,8 @@ def build_dashboard_html(state: dict[str, Any]) -> str:
   page = str(state.get("page") or "chat")
   if page == "history":
     return _render_history_page(state)
-  if page == "providers":
-    return _render_providers_page(state)
+  if page in {"config", "providers"}:
+    return _render_config_page(state)
   return _render_chat_page(state)
 
 
@@ -691,7 +691,7 @@ def _render_sidebar(
   page_links = [
     ("chat", "Conversation", _build_link("/chat", q=query, run_id=run_id)),
     ("history", "History", _build_link("/history", q=query)),
-    ("providers", "Provider Status", "/providers"),
+    ("config", "Config", "/config"),
   ]
 
   return "".join(
@@ -1048,7 +1048,14 @@ def _render_actions_panel(selected_run: dict[str, Any] | None) -> str:
     )
 
 
-def _render_provider_panel(provider_statuses: list[dict[str, Any]]) -> str:
+def _render_provider_panel(
+  provider_statuses: list[dict[str, Any]],
+  *,
+  section_id: str = "config-providers",
+  section_kicker: str = "Config",
+  section_title: str = "Providers",
+  empty_message: str = "No provider status information is available.",
+) -> str:
     provider_cards: list[str] = []
     for status in provider_statuses:
         ready = bool(status.get("ready", False))
@@ -1066,16 +1073,16 @@ def _render_provider_panel(provider_statuses: list[dict[str, Any]]) -> str:
 
     return "".join(
         [
-            '<section class="rail-card" id="providers">',
+        f'<section class="rail-card" id="{html.escape(section_id)}">',
             '<div class="section-head">',
             '<div>',
-            '<div class="section-kicker">Agent</div>',
-            '<h3>Providers</h3>',
+        f'<div class="section-kicker">{html.escape(section_kicker)}</div>',
+        f'<h3>{html.escape(section_title)}</h3>',
             '</div>',
             f'<div class="section-meta">{len(provider_statuses)} available</div>',
             '</div>',
             '<div class="provider-list">',
-            *(provider_cards or ['<div class="empty-copy">No provider status information is available.</div>']),
+        *(provider_cards or [f'<div class="empty-copy">{html.escape(empty_message)}</div>']),
             '</div>',
             '</section>',
         ]
@@ -2980,31 +2987,53 @@ def _render_run_card(run: dict[str, Any]) -> str:
     )
 
 
-def _render_providers_page(state: dict[str, Any]) -> str:
+def _render_config_page(state: dict[str, Any]) -> str:
   workspace = dict(state.get("workspace") or {})
+  config = dict(state.get("config") or {})
   provider_statuses = list(state.get("provider_statuses") or [])
+  provider_settings = dict(config.get("provider_settings") or {})
+  default_provider = str(config.get("default_provider") or LOCAL_PROVIDER_ID)
   header = "".join(
     [
       '<header class="page-header">',
       '<div>',
-      '<h1 class="page-title">Providers</h1>',
-      '<div class="page-subtitle">Only the provider readiness summary is shown here.</div>',
+      '<h1 class="page-title">Config</h1>',
+      '<div class="page-subtitle">Workspace settings, default provider, and readiness all live here.</div>',
       '</div>',
       '</header>',
     ]
   )
 
-  if not provider_statuses:
-    body = '<div class="empty-state">No provider information available.</div>'
-  else:
-    body = ''.join(_render_provider_card(status) for status in provider_statuses)
+  settings_panel = "".join(
+    [
+      '<section class="rail-card" id="config-settings">',
+      '<div class="section-head">',
+      '<div>',
+      '<div class="section-kicker">Config</div>',
+      '<h3>Current settings</h3>',
+      '</div>',
+      '<div class="section-meta">Persisted in .nexus-agi/config.json</div>',
+      '</div>',
+      '<div class="stat-grid">',
+      f'<div class="stat"><strong>{html.escape(default_provider)}</strong><span>Default provider</span></div>',
+      f'<div class="stat"><strong>{len(provider_settings)}</strong><span>Configured providers</span></div>',
+      f'<div class="stat"><strong>{html.escape(str(workspace.get("state_path") or ""))}</strong><span>State file</span></div>',
+      f'<div class="stat"><strong>{html.escape(str(workspace.get("data_dir") or ""))}</strong><span>Data directory</span></div>',
+      '</div>',
+      '</section>',
+    ]
+  )
 
   return _render_page(
-    title="Nexus AGI - Providers",
-    page="providers",
-    sidebar_html=_render_sidebar(workspace, active_page="providers"),
-    body_html=header + f'<main class="page-list"><div class="provider-grid">{body}</div></main>',
+    title="Nexus AGI - Config",
+    page="config",
+    sidebar_html=_render_sidebar(workspace, active_page="config"),
+    body_html=header + f'<main class="page-list">{settings_panel}{_render_provider_panel(provider_statuses)}</main>',
   )
+
+
+def _render_providers_page(state: dict[str, Any]) -> str:
+  return _render_config_page(state)
 
 
 def _render_provider_card(status: dict[str, Any]) -> str:

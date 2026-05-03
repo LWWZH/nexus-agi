@@ -1128,16 +1128,18 @@ def build_parser() -> argparse.ArgumentParser:
     approve_parser.add_argument("run_id", help="Run id to approve.")
     approve_parser.add_argument("step_id", nargs="?", help="Optional step id to approve.")
 
-    configure_parser = subparsers.add_parser("configure", aliases=["config"], parents=[shared], help="View or update configuration.")
-    configure_parser.add_argument("--default-provider", default=argparse.SUPPRESS, help="Set the default provider id.")
-    configure_parser.add_argument(
+    config_parser = subparsers.add_parser("config", aliases=["configure"], parents=[shared], help="View or update configuration.")
+    config_parser.add_argument("--default-provider", default=argparse.SUPPRESS, help="Set the default provider id.")
+    config_parser.add_argument(
         "--provider-setting",
         action="append",
         default=argparse.SUPPRESS,
         help="Update an advanced provider setting using provider.path=value syntax. Can be repeated.",
     )
+    config_subparsers = config_parser.add_subparsers(dest="config_command")
+    config_subparsers.add_parser("providers", parents=[shared], help="List built-in and custom providers.")
 
-    subparsers.add_parser("providers", parents=[shared], help="List built-in and custom providers.")
+    subparsers.add_parser("providers", parents=[shared], help="Alias for config providers.")
 
     return parser
 
@@ -1174,6 +1176,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "approve":
             return _emit_run(runtime.approve(args.run_id, step_id=args.step_id), args.json)
         if args.command in {"configure", "config"}:
+            if getattr(args, "config_command", None) == "providers":
+                return _emit_provider_statuses(runtime.list_provider_statuses(), args.json)
             if _has_config_updates(args):
                 config = runtime.get_config()
                 if hasattr(args, "default_provider"):
@@ -1189,14 +1193,7 @@ def main(argv: list[str] | None = None) -> int:
                 _render_config(config)
             return 0
         if args.command == "providers":
-            statuses = runtime.list_provider_statuses()
-            if args.json:
-                print(json.dumps(statuses, indent=2, sort_keys=True))
-            else:
-                for status in statuses:
-                    readiness = "ready" if status["ready"] else "not ready"
-                    print(f"{status['provider_id']}: {status['display_name']} [{readiness}] - {status['details']}")
-            return 0
+            return _emit_provider_statuses(runtime.list_provider_statuses(), args.json)
         parser.error(f"unknown command: {args.command}")
         return 2
     except (FileNotFoundError, ValueError, ProviderError) as exc:
@@ -1249,6 +1246,17 @@ def _render_config(config: AppConfig) -> None:
             continue
         entries = ", ".join(f"{key}={_format_config_value(value)}" for key, value in sorted(settings.items()))
         print(f"  - {provider_id}: {entries}")
+
+
+def _emit_provider_statuses(statuses: list[dict[str, Any]], json_output: bool) -> int:
+    if json_output:
+        print(json.dumps(statuses, indent=2, sort_keys=True))
+        return 0
+
+    for status in statuses:
+        readiness = "ready" if status["ready"] else "not ready"
+        print(f"{status['provider_id']}: {status['display_name']} [{readiness}] - {status['details']}")
+    return 0
 
 
 def _has_config_updates(args: argparse.Namespace) -> bool:
