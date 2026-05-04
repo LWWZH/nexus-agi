@@ -1129,17 +1129,13 @@ def build_parser() -> argparse.ArgumentParser:
     approve_parser.add_argument("step_id", nargs="?", help="Optional step id to approve.")
 
     config_parser = subparsers.add_parser("config", aliases=["configure"], parents=[shared], help="View or update configuration.")
-    config_parser.add_argument("--default-provider", default=argparse.SUPPRESS, help="Set the default provider id.")
-    config_parser.add_argument(
-        "--provider-setting",
-        action="append",
-        default=argparse.SUPPRESS,
-        help="Update an advanced provider setting using provider.path=value syntax. Can be repeated.",
-    )
+    _add_provider_config_arguments(config_parser)
     config_subparsers = config_parser.add_subparsers(dest="config_command")
-    config_subparsers.add_parser("providers", parents=[shared], help="List built-in and custom providers.")
+    config_providers_parser = config_subparsers.add_parser("providers", parents=[shared], help="List or update provider settings.")
+    _add_provider_config_arguments(config_providers_parser)
 
-    subparsers.add_parser("providers", parents=[shared], help="Alias for config providers.")
+    providers_parser = subparsers.add_parser("providers", parents=[shared], help="Alias for config providers.")
+    _add_provider_config_arguments(providers_parser)
 
     return parser
 
@@ -1177,14 +1173,9 @@ def main(argv: list[str] | None = None) -> int:
             return _emit_run(runtime.approve(args.run_id, step_id=args.step_id), args.json)
         if args.command in {"configure", "config"}:
             if getattr(args, "config_command", None) == "providers":
+                _apply_config_updates(runtime, args)
                 return _emit_provider_statuses(runtime.list_provider_statuses(), args.json)
-            if _has_config_updates(args):
-                config = runtime.get_config()
-                if hasattr(args, "default_provider"):
-                    config.default_provider = args.default_provider
-                if args.provider_setting:
-                    config.provider_settings = runtime._merge_provider_settings(config.provider_settings, _provider_setting_updates(args.provider_setting))
-                runtime.update_config(config)
+            _apply_config_updates(runtime, args)
 
             config = runtime.get_config()
             if args.json:
@@ -1193,6 +1184,7 @@ def main(argv: list[str] | None = None) -> int:
                 _render_config(config)
             return 0
         if args.command == "providers":
+            _apply_config_updates(runtime, args)
             return _emit_provider_statuses(runtime.list_provider_statuses(), args.json)
         parser.error(f"unknown command: {args.command}")
         return 2
@@ -1261,6 +1253,28 @@ def _emit_provider_statuses(statuses: list[dict[str, Any]], json_output: bool) -
 
 def _has_config_updates(args: argparse.Namespace) -> bool:
     return hasattr(args, "default_provider") or bool(getattr(args, "provider_setting", []))
+
+
+def _add_provider_config_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--default-provider", default=argparse.SUPPRESS, help="Set the default provider id.")
+    parser.add_argument(
+        "--provider-setting",
+        action="append",
+        default=argparse.SUPPRESS,
+        help="Update a provider setting using provider.path=value syntax. Can be repeated.",
+    )
+
+
+def _apply_config_updates(runtime: AgentRuntime, args: argparse.Namespace) -> None:
+    if not _has_config_updates(args):
+        return
+
+    config = runtime.get_config()
+    if hasattr(args, "default_provider"):
+        config.default_provider = args.default_provider
+    if args.provider_setting:
+        config.provider_settings = runtime._merge_provider_settings(config.provider_settings, _provider_setting_updates(args.provider_setting))
+    runtime.update_config(config)
 
 
 def _provider_setting_updates(assignments: list[str]) -> dict[str, dict[str, Any]]:

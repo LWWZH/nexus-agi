@@ -254,6 +254,34 @@ class CliTests(unittest.TestCase):
             self.assertIn(LOCAL_PROVIDER_ID, provider_ids)
             self.assertIn(CUSTOM_PROVIDER_ID, provider_ids)
 
+    def test_config_providers_updates_settings_and_lists_statuses(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exit_code = main([
+                    "--workspace",
+                    str(workspace),
+                    "config",
+                    "providers",
+                    "--default-provider",
+                    "custom",
+                    "--provider-setting",
+                    "custom.base_url=http://127.0.0.1:11434/v1",
+                    "--json",
+                ])
+            self.assertEqual(exit_code, 0)
+
+            statuses = json.loads(output.getvalue())
+            provider_ids = {status["provider_id"] for status in statuses}
+            self.assertIn(LOCAL_PROVIDER_ID, provider_ids)
+            self.assertIn(CUSTOM_PROVIDER_ID, provider_ids)
+
+            store = JsonStateStore(workspace)
+            config = store.get_config()
+            self.assertEqual(config.default_provider, "custom")
+            self.assertEqual(config.provider_settings["custom"]["base_url"], "http://127.0.0.1:11434/v1")
+
 
 if __name__ == "__main__":
     unittest.main()
